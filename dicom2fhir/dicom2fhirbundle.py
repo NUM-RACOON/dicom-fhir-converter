@@ -11,10 +11,13 @@ from dicom2fhir.dicom2fhirutils import gen_coding, SOP_CLASS_SYS, ACQUISITION_MO
 from dicom2fhir.dicom2patient import build_patient_resource
 from dicom2fhir.dicom2observation import build_observation_resources
 from dicom2fhir.dicom2device import build_device_resource
+from dicom2fhir.dicom2endpoint import build_endpoint_resource
 from dicom2fhir.helpers import get_or
 from dicom2fhir.dicom_json_proxy import DicomJsonProxy
 # extensions
 from dicom2fhir.extensions import extension_contrast, extension_CT, extension_instance, extension_MG_CR_DX, extension_MR, extension_NM, extension_PT, extension_reason
+
+logger = logging.getLogger(__name__)
 
 class Dicom2FHIRBundle():
 
@@ -79,19 +82,24 @@ class Dicom2FHIRBundle():
         if ds.non_empty("StudyDate") and ds.non_empty("StudyTime"):
             study_data["started"] = gen_started_datetime(str(ds.StudyDate), str(ds.StudyTime), self.config["dicom_timezone"])
 
-        # reason codes
+        # reason codes - read from each ReferencedRequestSequence ITEM (the
+        # Reason* attributes live inside the sequence items, not at top level)
         if ds.non_empty("ReferencedRequestSequence"):
+            reason_codes = []
             for seq in ds.ReferencedRequestSequence:
 
                 reason = None
-                reasonStr = None 
+                reasonStr = None
 
                 if seq.non_empty("ReasonForRequestedProcedureCodeSequence"):
-                    reason = dcm_coded_concept(ds.ReasonForRequestedProcedureCodeSequence)
+                    reason = dcm_coded_concept(seq.ReasonForRequestedProcedureCodeSequence)
                 if seq.non_empty("ReasonForTheRequestedProcedure"):
-                    reasonStr = str(ds.ReasonForTheRequestedProcedure)
-                if reason is not None and reasonStr is not None:
-                    study_data["reasonCode"] = gen_reason(reason, reasonStr)
+                    reasonStr = str(seq.ReasonForTheRequestedProcedure)
+                rc = gen_reason(reason, reasonStr)
+                if rc:
+                    reason_codes.extend(rc)
+            if reason_codes:
+                study_data["reasonCode"] = reason_codes
         
         study_extensions = []
         # reason extension
@@ -99,7 +107,9 @@ class Dicom2FHIRBundle():
         if e_reason is not None:
             study_extensions.append(e_reason)
 
-        study_data["extension"] = study_extensions
+        # only set when non-empty - avoids "extension": [] noise in the output
+        if study_extensions:
+            study_data["extension"] = study_extensions
 
         study_data["numberOfSeries"] = 0
         study_data["numberOfInstances"] = 0
@@ -130,7 +140,7 @@ class Dicom2FHIRBundle():
                     self.series[series_instance_uid]["number"] = series_number
                 else:
                     # SeriesNumber is out of range, log a warning and store original value as extension
-                    logging.warning(f"Invalid SeriesNumber {ds.SeriesNumber}: out of range")
+                    logger.warning(f"Invalid SeriesNumber {ds.SeriesNumber}: out of range")
                     self.series[series_instance_uid]["extension"] = [
                         {
                             "url": "http://dicom.nema.org/resources/ontology/DCM/series-number",
@@ -138,7 +148,7 @@ class Dicom2FHIRBundle():
                         }
                     ]
             except Exception as e:
-                logging.warning(f"Invalid SeriesNumber {ds.SeriesNumber}: {e}")
+                logger.warning(f"Invalid SeriesNumber {ds.SeriesNumber}: {e}")
 
         if ds.non_empty("Modality"):
             self.series[series_instance_uid]["modality"] = gen_coding(
@@ -202,7 +212,11 @@ class Dicom2FHIRBundle():
         if e_con is not None:
             series_extensions.append(e_con)
 
-        self.series[series_instance_uid]["extension"] = series_extensions
+        # APPEND to any extension already recorded for this series (e.g. the
+        # out-of-range SeriesNumber extension) instead of clobbering it, and
+        # only when non-empty.
+        if series_extensions:
+            self.series[series_instance_uid].setdefault("extension", []).extend(series_extensions)
     
     def _add_instance(self, ds: DicomJsonProxy):
 
@@ -213,8 +227,12 @@ class Dicom2FHIRBundle():
             self.instances[series_instance_uid] = {}
 
         if sop_instance_uid in self.instances[series_instance_uid]:
-            print("Error: SOP Instance UID already exists in the series")
-            print(self.instances[series_instance_uid][sop_instance_uid].as_json())
+            # duplicate SOP instance: keep the first occurrence. (The previous
+            # code crashed here - it called .as_json() on a plain dict.)
+            logger.warning(
+                "Duplicate SOPInstanceUID %s in series %s - skipping",
+                sop_instance_uid, series_instance_uid,
+            )
             return
 
         self.instances[series_instance_uid][sop_instance_uid] = {}
@@ -236,12 +254,10 @@ class Dicom2FHIRBundle():
         except Exception:
             pass  # print("Unable to set instance title")
 
-        # instance extension
-        instance_extension = []
+        # instance extension - only set when non-empty
         e_instance = extension_instance.create_extension(ds)
         if e_instance is not None:
-            instance_extension.append(e_instance)
-        self.instances[series_instance_uid][sop_instance_uid]["extension"] = instance_extension
+            self.instances[series_instance_uid][sop_instance_uid]["extension"] = [e_instance]
 
     def _build_imaging_study(self) -> imagingstudy.ImagingStudy:
         """
@@ -301,15 +317,26 @@ class Dicom2FHIRBundle():
 
         # Build the ImagingStudy resource
         _study = self._build_imaging_study()
-    
+
+        entries = [
+            _to_entry(_study),
+            _to_entry(self.pat),
+            _to_entry(self.device)
+        ] + [_to_entry(o) for o in self.obs]
+
+        # Optional WADO-RS Endpoint (config: generator.endpoint.dicomweb_base_url).
+        # Inserted BEFORE the ImagingStudy so transaction servers that validate
+        # references in document order can resolve ImagingStudy.endpoint.
+        dicomweb_base_url = get_or(self.config, "generator.endpoint.dicomweb_base_url", None)
+        if dicomweb_base_url:
+            _endpoint = build_endpoint_resource(dicomweb_base_url)
+            _study.endpoint = [Reference.model_construct(reference=f"Endpoint/{_endpoint.id}")]
+            entries.insert(0, _to_entry(_endpoint))
+
         # wrap entries in a transaction Bundle and return
         return bundle.Bundle.model_validate({
             'resourceType': 'Bundle',
             'type': "transaction",
             'id': str(uuid.uuid4()),
-            'entry': [
-                _to_entry(_study),
-                _to_entry(self.pat),
-                _to_entry(self.device)
-            ] + [_to_entry(o) for o in self.obs]
+            'entry': entries
         })
