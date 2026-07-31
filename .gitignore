@@ -9,3 +9,7 @@ __pycache__
 dist/
 build/
 *.egg-info/
+
+dicom_data/
+output/
+
