@@ -7,7 +7,6 @@ from fhir.resources.reference import Reference
 from fhir.resources.meta import Meta
 from fhir.resources.codeableconcept import CodeableConcept
 from fhir.resources.codeablereference import CodeableReference
-from fhir.resources.coding import Coding
 #from pydicom import dataset
 import logging
 from dicom2fhir.dicom2fhirutils import gen_coding, SOP_CLASS_SYS, ACQUISITION_MODALITY_SYS, gen_bodysite_coding, gen_accession_identifier, gen_studyinstanceuid_identifier, dcm_coded_concept, gen_procedurecode_array, gen_started_datetime, gen_reason
@@ -20,6 +19,7 @@ from dicom2fhir.dicom_json_proxy import DicomJsonProxy
 # extensions
 from dicom2fhir.extensions import extension_contrast, extension_CT, extension_instance, extension_MG_CR_DX, extension_MR, extension_NM, extension_PT, extension_reason
 
+from dicom2fhir.dicom2imaging_selection import build_imaging_selection_resource
 logger = logging.getLogger(__name__)
 
 class Dicom2FHIRBundle():
@@ -29,6 +29,8 @@ class Dicom2FHIRBundle():
         Initialize the Dicom2FHIRBundle with an optional configuration.
         """
         self.study: imagingstudy.ImagingStudy | None = None
+
+        self.first_ds: DicomJsonProxy | None = None
         self.series = {}
         self.instances = {}
         # Device
@@ -47,6 +49,7 @@ class Dicom2FHIRBundle():
 
         # is first instance?
         if self.study is None:
+            self.first_ds = ds
             self.device = build_device_resource(ds, self.config)
             self.pat = build_patient_resource(ds, self.config)
             self._create_imaging_study(ds)
@@ -309,7 +312,7 @@ class Dicom2FHIRBundle():
         self.study.modality = list(modality_set.values())
 
         return self.study
-    
+
     def create_bundle(self) -> bundle.Bundle:
         """
         Create the final transaction bundle.
@@ -329,13 +332,17 @@ class Dicom2FHIRBundle():
             raise ValueError("No ImagingStudy data has been added")
 
         # Build the ImagingStudy resource
-        _study = self._build_imaging_study()
+        _study = self._build_imaging_study()       
+        _imaging_selections = build_imaging_selection_resource(self.instances, self.pat, self.study, self.first_ds, self.config)
 
         entries = [
             _to_entry(_study),
             _to_entry(self.pat),
-            _to_entry(self.device)
-        ] + [_to_entry(o) for o in self.obs]
+            _to_entry(self.device),
+        ]
+
+        entries.extend(_to_entry(o) for o in self.obs)
+        entries.extend(_to_entry(sel) for sel in _imaging_selections)
 
         # Optional WADO-RS Endpoint (config: generator.endpoint.dicomweb_base_url).
         # Inserted BEFORE the ImagingStudy so transaction servers that validate
