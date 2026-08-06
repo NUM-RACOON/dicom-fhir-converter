@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 import logging
 from typing import List
-from fhir.resources.R4B.observation import Observation
-from fhir.resources.R4B.patient import Patient
-from fhir.resources.R4B.imagingstudy import ImagingStudy
-from fhir.resources.R4B.quantity import Quantity
-from fhir.resources.R4B.codeableconcept import CodeableConcept
-from fhir.resources.R4B.coding import Coding
-from fhir.resources.R4B.reference import Reference
-from fhir.resources.R4B.meta import Meta
+from fhir.resources.observation import Observation
+from fhir.resources.patient import Patient
+from fhir.resources.imagingstudy import ImagingStudy
+from fhir.resources.quantity import Quantity
+from fhir.resources.codeableconcept import CodeableConcept
+from fhir.resources.coding import Coding
+from fhir.resources.reference import Reference
+from fhir.resources.meta import Meta
 from dicom2fhir.dicom2fhirutils import gen_started_datetime
 from dicom2fhir.dicom_json_proxy import DicomJsonProxy
 

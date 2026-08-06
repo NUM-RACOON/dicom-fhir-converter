@@ -9,9 +9,9 @@ via ``ImagingStudy.endpoint``.
 """
 import hashlib
 
-from fhir.resources.R4B.codeableconcept import CodeableConcept
-from fhir.resources.R4B.coding import Coding
-from fhir.resources.R4B.endpoint import Endpoint
+from fhir.resources.codeableconcept import CodeableConcept
+from fhir.resources.coding import Coding
+from fhir.resources.endpoint import Endpoint
 
 CONNECTION_TYPE_SYS = "http://terminology.hl7.org/CodeSystem/endpoint-connection-type"
 PAYLOAD_TYPE_SYS = "http://terminology.hl7.org/CodeSystem/endpoint-payload-type"

@@ -5,15 +5,12 @@ import datetime
 import uuid
 from typing import Union
 from pydicom.valuerep import PersonName
-from fhir.resources.R4B.patient import Patient
-from fhir.resources.R4B.humanname import HumanName
-from fhir.resources.R4B.address import Address
-from fhir.resources.R4B.contactpoint import ContactPoint
-from fhir.resources.R4B.identifier import Identifier
-from fhir.resources.R4B.fhirtypes import DateType
-from fhir.resources.R4B.extension import Extension
-from fhir.resources.R4B.quantity import Quantity
-from dicom2fhir.helpers import get_or
+from fhir.resources.patient import Patient
+from fhir.resources.humanname import HumanName
+from fhir.resources.address import Address
+from fhir.resources.contactpoint import ContactPoint
+from fhir.resources.identifier import Identifier
+from fhir.resources.fhirtypes import DateType
 from dicom2fhir.dicom_json_proxy import DicomJsonProxy
 
 DATE8_REGEX = re.compile(r'^(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$')

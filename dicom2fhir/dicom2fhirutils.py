@@ -2,12 +2,12 @@
 import logging
 from datetime import datetime
 from dateutil import tz as dateutil_tz
-from fhir.resources.R4B import identifier
-from fhir.resources.R4B import codeableconcept
-from fhir.resources.R4B import coding
-from fhir.resources.R4B import reference
-from fhir.resources.R4B import extension
-from fhir.resources.R4B import quantity
+from fhir.resources import identifier
+from fhir.resources import codeableconcept
+from fhir.resources import coding
+from fhir.resources import reference
+from fhir.resources import extension
+from fhir.resources import quantity
 import pandas as pd
 import json
 from pathlib import Path

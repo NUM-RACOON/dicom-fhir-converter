@@ -134,5 +134,5 @@ if __name__ == "__main__":
 
     output_path.mkdir(parents=True, exist_ok=True)
 
-    fhir_server_address = "http://10.250.8.80:8080/fhir/"  # Replace with your FHIR server address
+    fhir_server_address =  "http://localhost:8080/fhir/"  # Replace with your FHIR server address
     process_study(root_path=str(dicom_path), output_path=str(output_path), save_json_file=True, fhir_server=fhir_server_address, sessionkey=None)

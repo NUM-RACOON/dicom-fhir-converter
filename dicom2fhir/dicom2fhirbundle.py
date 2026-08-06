@@ -1,10 +1,13 @@
 import uuid
-from fhir.resources.R4B import bundle
-from fhir.resources.R4B import imagingstudy
-from fhir.resources.R4B import patient
-from fhir.resources.R4B import device
-from fhir.resources.R4B.reference import Reference
-from fhir.resources.R4B.meta import Meta
+from fhir.resources import bundle
+from fhir.resources import imagingstudy
+from fhir.resources import patient
+from fhir.resources import device
+from fhir.resources.reference import Reference
+from fhir.resources.meta import Meta
+from fhir.resources.codeableconcept import CodeableConcept
+from fhir.resources.codeablereference import CodeableReference
+from fhir.resources.coding import Coding
 #from pydicom import dataset
 import logging
 from dicom2fhir.dicom2fhirutils import gen_coding, SOP_CLASS_SYS, ACQUISITION_MODALITY_SYS, gen_bodysite_coding, gen_accession_identifier, gen_studyinstanceuid_identifier, dcm_coded_concept, gen_procedurecode_array, gen_started_datetime, gen_reason
@@ -151,9 +154,13 @@ class Dicom2FHIRBundle():
                 logger.warning(f"Invalid SeriesNumber {ds.SeriesNumber}: {e}")
 
         if ds.non_empty("Modality"):
-            self.series[series_instance_uid]["modality"] = gen_coding(
-                code=str(ds.Modality),
-                system=ACQUISITION_MODALITY_SYS
+            self.series[series_instance_uid]["modality"] = CodeableConcept(
+                coding=[
+                    gen_coding(
+                        code=str(ds.Modality),
+                        system=ACQUISITION_MODALITY_SYS
+                    )
+                ]
             )
         
         #added device as performer of the series if device information is available
@@ -173,7 +180,11 @@ class Dicom2FHIRBundle():
             )
 
         if ds.non_empty("BodyPartExamined"):
-            self.series[series_instance_uid]["bodySite"] = gen_bodysite_coding(str(ds.BodyPartExamined))
+            coding = gen_bodysite_coding(str(ds.BodyPartExamined))
+
+            self.series[series_instance_uid]["bodySite"] = CodeableReference(
+                concept=CodeableConcept(coding=[coding])
+            )
 
         if ds.non_empty("Laterality"):
             self.series[series_instance_uid]["laterality"] = gen_coding(str(ds.Laterality))
@@ -288,11 +299,13 @@ class Dicom2FHIRBundle():
         self.study.numberOfInstances = sum(s.numberOfInstances for s in self.study.series)
 
         # Set the modalities
-        modality_set = {
-            s.modality.code: s.modality
-            for s in self.study.series or []
-            if s.modality is not None
-        }
+        modality_set = {}
+
+        for s in self.study.series or []:
+            if s.modality and s.modality.coding:
+                for coding in s.modality.coding:
+                    modality_set[coding.code] = s.modality
+
         self.study.modality = list(modality_set.values())
 
         return self.study

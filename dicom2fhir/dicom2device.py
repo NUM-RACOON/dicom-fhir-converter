@@ -2,10 +2,12 @@ import uuid
 import logging
 from collections.abc import Iterable
 from dicom2fhir.dicom_json_proxy import DicomJsonProxy
-from fhir.resources.R4B.device import Device, DeviceDeviceName
-from fhir.resources.R4B.annotation import Annotation
-from fhir.resources.R4B.device import DeviceUdiCarrier
-from fhir.resources.R4B.meta import Meta
+from fhir.resources.device import Device,DeviceName
+from fhir.resources.annotation import Annotation
+from fhir.resources.device import DeviceUdiCarrier, Device
+from fhir.resources.meta import Meta
+from fhir.resources.codeableconcept import CodeableConcept
+from fhir.resources.reference import Reference
 
 logger = logging.getLogger(__name__)
 
@@ -63,23 +65,36 @@ def build_device_resource(ds: DicomJsonProxy, config: dict) -> Device:
     if ds.non_empty("Manufacturer"):
         device.manufacturer = str(ds.Manufacturer)
     if ds.non_empty("ManufacturerModelName"):
-        device.deviceName = [DeviceDeviceName.model_construct(name=str(ds.ManufacturerModelName), type="model-name")]
+        device.name = [
+            DeviceName.model_construct(
+                value=str(ds.ManufacturerModelName),
+                type="registered-name"
+            )
+        ]
 
     # Software version(s)
     device.version = _map_software_versions(ds)
 
     # Institutional context
     if ds.non_empty("InstitutionName"):
-        device.owner = {"display": str(ds.InstitutionName)}
+        device.owner = Reference(
+            display=str(ds.InstitutionName)
+        )
     if ds.non_empty("InstitutionalDepartmentName"):
-        device.location = {"display": str(ds.InstitutionalDepartmentName)}
+        device.location = Reference(
+            display=str(ds.InstitutionalDepartmentName)
+        )
     if ds.non_empty("StationName"):
         # set as user-friendly name according to
         # _User defined name identifying the machine..._
-        device.deviceName = device.deviceName or []
-        device.deviceName.append(DeviceDeviceName.model_construct(
-            name=str(ds.StationName), type="user-friendly-name")
+        device.name = device.name or []
+        device.name.append(
+            DeviceName.model_construct(
+                value=str(ds.StationName),
+                type="user-friendly-name"
+            )
         )
+                    
 
     # Physical/device-specific details
     try:
@@ -120,6 +135,10 @@ def build_device_resource(ds: DicomJsonProxy, config: dict) -> Device:
 
     # Modality as device type
     if ds.non_empty("Modality"):
-        device.type = {"text": str(ds.Modality)}
+        device.type = [
+            CodeableConcept(
+                text=str(ds.Modality)
+            )
+        ]
 
     return device
