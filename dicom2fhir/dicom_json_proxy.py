@@ -114,3 +114,17 @@ class DicomJsonProxy:
         if elem["vr"] == "SQ":
             return [DicomJsonProxy(item) for item in value]
         return value
+    
+    def debug(self, name):
+        tag = tag_for_keyword(name)
+
+        if tag is None:
+            print(f"{name}: UNKNOWN KEYWORD")
+            return
+
+        key = f"{tag >> 16:04X}{tag & 0xFFFF:04X}"
+
+        print(f"Keyword: {name}")
+        print(f"Tag:     {key}")
+        print(f"Exists:  {key in self._raw}")
+        print(f"Raw:     {self._raw.get(key)}")

@@ -11,6 +11,16 @@ from dicom2fhir.dicom_json_proxy import DicomJsonProxy
 
 logger = logging.getLogger(__name__)
 
+RTSTRUCT_SOP_CLASS_UID = "1.2.840.10008.5.1.4.1.1.481.3"
+def is_rtstruct(instance_data: dict) -> bool:
+    sop_class = instance_data.get("sopClass")
+
+    if sop_class is None:
+        return False
+
+    return sop_class.code == f"urn:oid:{RTSTRUCT_SOP_CLASS_UID}"
+
+
 def build_imaging_selection_resource(
     instances: list[DicomJsonProxy],#dicom instances as json...
     patient: Patient,
@@ -30,17 +40,17 @@ def build_imaging_selection_resource(
         raise ValueError("Cannot create ImagingSelection without instances")
 
     selections = []
-    
-    for series_uid, instances in instances.items():
 
+    for series_uid, series_instances in instances.items():
         instance_list = []
+        for sop_uid, instance_data in series_instances.items():
 
-        for sop_uid, instance_data in instances.items():
-
+            if not is_rtstruct(instance_data):
+                continue      
+            
             item = {
-                "uid": sop_uid
-            }
-
+                 "uid": sop_uid
+             }
             if "sopClass" in instance_data:
                 item["sopClass"] = instance_data["sopClass"]
 
@@ -55,6 +65,9 @@ def build_imaging_selection_resource(
 
             instance_list.append(item)
 
+        if len(instance_list) == 0:
+            logger.warning(f"No valid instances found for series {series_uid}. Skipping ImagingSelection creation for this series.")
+            continue
 
         selection = imagingselection.ImagingSelection(
             id=config["id_function"](
@@ -91,9 +104,10 @@ def build_imaging_selection_resource(
             seriesUid=series_uid,
 
             instance=instance_list
-        )
+            )
 
         selections.append(selection)
+        
 
     return selections
 
