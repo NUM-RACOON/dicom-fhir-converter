@@ -34,11 +34,13 @@ class Dicom2FHIRBundle():
         self.series = {}
         self.instances = {}
         # Device
-        self.device: device.Device | None = None
+        #self.device: device.Device | None = None
         # Patient
         self.pat: patient.Patient | None = None
         self.obs = []
         self.config = config
+        self.devices = {}
+        
         
     def add(self, ds: DicomJsonProxy):
         """
@@ -50,7 +52,7 @@ class Dicom2FHIRBundle():
         # is first instance?
         if self.study is None:
             self.first_ds = ds
-            self.device = build_device_resource(ds, self.config)
+            #self.device = build_device_resource(ds, self.config)
             self.pat = build_patient_resource(ds, self.config)
             self._create_imaging_study(ds)
             if get_or(self.config, "generator.observation.add_vital_signs", True):
@@ -165,13 +167,17 @@ class Dicom2FHIRBundle():
                     )
                 ]
             )
-        
+
+        if series_instance_uid not in self.devices:
+            device = build_device_resource(ds, self.config)
+            self.devices[series_instance_uid] = device
+
         #added device as performer of the series if device information is available
-        if self.device and self.device.id:
+        if device and device.id:
             self.series[series_instance_uid]["performer"] = [
                 {
                     "actor": {
-                        "reference": f"Device/{self.device.id}"
+                        "reference": f"Device/{device.id}"
                     }
                 }
             ]
@@ -338,10 +344,11 @@ class Dicom2FHIRBundle():
         entries = [
             _to_entry(_study),
             _to_entry(self.pat),
-            _to_entry(self.device),
+           # _to_entry(self.device),
         ]
 
-        entries.extend(_to_entry(o) for o in self.obs)
+        entries.extend(_to_entry(device) for device in self.devices.values() if device is not None)
+        entries.extend(_to_entry(o) for o in self.obs) 
         entries.extend(_to_entry(sel) for sel in _imaging_selections)
 
         # Optional WADO-RS Endpoint (config: generator.endpoint.dicomweb_base_url).
