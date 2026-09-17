@@ -6,7 +6,6 @@ from fhir.resources.codeableconcept import CodeableConcept
 from fhir.resources.patient import Patient
 from fhir.resources import imagingstudy
 from fhir.resources import imagingselection
-
 from dicom2fhir.dicom_json_proxy import DicomJsonProxy
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,8 @@ def build_imaging_selection_resource(
     patient: Patient,
     study : imagingstudy.ImagingStudy,
     first_ds: DicomJsonProxy,
-    config: dict
+    config: dict,
+    rois:dict = None
 ) -> list[imagingselection.ImagingSelection]:
 
 
@@ -46,7 +46,17 @@ def build_imaging_selection_resource(
         for sop_uid, instance_data in series_instances.items():
 
             if not is_rtstruct(instance_data):
-                continue      
+                continue 
+
+            return build_imaging_selection_resource_for_rois(
+                first_ds=first_ds,
+                instance_data=instance_data,
+                patient=patient,
+                study=study,
+                config=config,
+                rois=rois,
+                series_uid=series_uid
+            )     
             
             item = {
                  "uid": sop_uid
@@ -111,3 +121,129 @@ def build_imaging_selection_resource(
 
     return selections
 
+
+def build_imaging_selection_resource_for_rois(
+    first_ds: DicomJsonProxy,
+    instance_data: any,
+    patient: Patient,
+    study: imagingstudy.ImagingStudy,
+    config: dict,
+    rois: dict,
+    series_uid: str
+) -> list[imagingselection.ImagingSelection]:
+
+    if study is None:
+        raise ValueError("No ImagingStudy available")
+
+    if patient is None:
+        raise ValueError("No Patient available")
+
+    if not first_ds:
+        raise ValueError("Cannot create ImagingSelection without instances")
+
+    selections = []
+
+    sop_instance_uid = instance_data.get("uid")
+    roi_list = rois.get(series_uid).get(sop_instance_uid, [])
+
+    if not roi_list:
+        logger.warning(
+            f"No StructureSetROISequence found in RTSTRUCT "
+            f"{sop_instance_uid}"
+        )
+        return selections
+
+            # ---------------------------------------------------------
+            # Create ONE ImagingSelection per ROI
+            # ---------------------------------------------------------
+    for roi in roi_list:
+
+
+        roi_name = roi["roiname"]
+        roi_number = roi["roinumber"]
+        roi_color = roi["roicolor"]
+
+        selection_id = config["id_function"](
+            "ImagingSelection",
+            first_ds,
+            f"ROI:{roi_number}"
+        )
+
+        selection = imagingselection.ImagingSelection(
+
+
+            id=selection_id,
+
+            status="available",
+
+            code=
+                CodeableConcept(
+                    coding=[
+                        Coding(
+                            system="http://dicom.nema.org/resources/ontology/DCM",
+                            code="RTSTRUCT",
+                            display="RT Structure Set"
+                        )
+                    ]
+                ),
+            
+
+            subject=Reference(
+                reference=f"Patient/{patient.id}"
+            ),
+
+            derivedFrom=[
+                Reference(
+                    reference=f"ImagingStudy/{study.id}"
+                )
+            ],
+
+            studyUid=str(first_ds.get('StudyInstanceUID')),
+
+            seriesUid=str(first_ds.get('SeriesInstanceUID')),
+
+            instance=[
+                {
+                    "uid": sop_instance_uid,
+
+                    "sopClass": instance_data["sopClass"],
+
+                    **(
+                        {"number": instance_data["number"]}
+                        if "number" in instance_data
+                        else {}
+                    )
+                }
+            ],
+            identifier=[
+
+                        {
+                            "system": config["rtstruct_roi_extension_url"],
+                            "value": f"{roi_number}|{roi_name}"
+                        }
+                    ]
+
+            # extension=[
+            #     {
+            #         "url": config["rtstruct_roi_extension_url"],
+            #         "extension": [
+            #             {
+            #                 "url": "roiNumber",
+            #                 "valuePositiveInt": roi_number,
+            #             },
+            #             *(
+            #                 [{
+            #                     "url": "roiName",
+            #                     "valueString": roi_name,
+            #                 }]
+            #                 if roi_name is not None
+            #                 else []
+            #             ),
+            #         ],
+            #     }
+            # ],
+        )
+
+        selections.append(selection)
+
+    return selections

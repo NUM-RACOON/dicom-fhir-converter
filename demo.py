@@ -23,8 +23,10 @@ def process_study(root_path, output_path, save_json_file, fhir_server = None , s
             },
             "observation": {
                 "add_vital_signs": True  # Add vital signs Observations for body weight and height
-            }
-        }
+            },
+        },
+        "rtstruct_roi_extension_url": "http://example.com/rtstruct-roi"
+
     }
 
     try:
@@ -121,6 +123,8 @@ if __name__ == "__main__":
         default=DEFAULT_OUTPUT_PATH,
         help=f"Output directory (default: {DEFAULT_OUTPUT_PATH})"
     )
+
+
 
     args = parser.parse_args()
 

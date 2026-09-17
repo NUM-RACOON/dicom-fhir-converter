@@ -14,7 +14,7 @@ from dicom2fhir.dicom2patient import build_patient_resource
 from dicom2fhir.dicom2observation import build_observation_resources
 from dicom2fhir.dicom2device import build_device_resource
 from dicom2fhir.dicom2endpoint import build_endpoint_resource
-from dicom2fhir.helpers import get_or
+from dicom2fhir.helpers import get_or, get_rtstruct_rois
 from dicom2fhir.dicom_json_proxy import DicomJsonProxy
 # extensions
 from dicom2fhir.extensions import extension_contrast, extension_CT, extension_instance, extension_MG_CR_DX, extension_MR, extension_NM, extension_PT, extension_reason
@@ -40,6 +40,7 @@ class Dicom2FHIRBundle():
         self.obs = []
         self.config = config
         self.devices = {}
+        self.rtstructInstances ={}
         
         
     def add(self, ds: DicomJsonProxy):
@@ -271,6 +272,12 @@ class Dicom2FHIRBundle():
                 seq = ds.ConceptNameCodeSequence
                 if isinstance(seq, list) and len(seq) > 0:
                     self.instances[series_instance_uid][sop_instance_uid]["title"] = str(seq[0].CodeMeaning)
+            if(str(ds.Modality) == "RTSTRUCT") :
+                rois = get_rtstruct_rois(ds)
+                self.rtstructInstances.setdefault(series_instance_uid, {})[
+                                                                sop_instance_uid
+                                                            ] = rois
+      
         except Exception:
             pass  # print("Unable to set instance title")
 
@@ -339,7 +346,7 @@ class Dicom2FHIRBundle():
 
         # Build the ImagingStudy resource
         _study = self._build_imaging_study()       
-        _imaging_selections = build_imaging_selection_resource(self.instances, self.pat, self.study, self.first_ds, self.config)
+        _imaging_selections = build_imaging_selection_resource(self.instances, self.pat, self.study, self.first_ds, self.config, self.rtstructInstances)
 
         entries = [
             _to_entry(_study),

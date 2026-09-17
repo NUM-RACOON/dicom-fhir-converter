@@ -58,6 +58,11 @@ def default_id_function(pepper: str | None = None) -> Callable[[str, DicomJsonPr
             study_date = ds.StudyDate if ds.non_empty("StudyDate") else ""
             study_time = ds.StudyTime if ds.non_empty("StudyTime") else ""
             base_string = f"{base_string}{uid}{study_date}{study_time}"
+        elif resource_type == "ImagingSelection" :
+            uid = ds.StudyInstanceUID if ds.non_empty("StudyInstanceUID") else ""
+            study_date = ds.StudyDate if ds.non_empty("StudyDate") else ""
+            study_time = ds.StudyTime if ds.non_empty("StudyTime") else ""
+            base_string = f"{base_string}{uid}{study_date}{study_time}"
         else:
             return str(uuid.uuid4())
 
@@ -120,3 +125,131 @@ def bundle_to_json_dict(resource, prune: bool = True) -> dict:
     import json
     d = json.loads(resource.model_dump_json())
     return prune_empties(d) if prune else d
+
+
+
+
+def get_rtstruct_rois__(rtstruct_ds: DicomJsonProxy) -> list[dict]:
+    rois = []
+
+    roi_contours_by_number = {
+        int(item.ReferencedROINumber): item
+        for item in rtstruct_ds.ROIContourSequence or []
+    }
+
+    for roi in rtstruct_ds.StructureSetROISequence or []:
+        roi_number = int(roi.ROINumber)
+
+        roi_contour = roi_contours_by_number.get(roi_number)
+
+        rois.append({
+            "roinumber": roi_number,
+            "roicolor": (
+                [int(x) for x in roi_contour.ROIDisplayColor]
+                if roi_contour and hasattr(roi_contour, "ROIDisplayColor")
+                else None
+            ),
+            "roiname": str(roi.ROIName),
+        })
+
+    return rois
+
+def get_rtstruct_rois(rtstruct_ds):
+    rois = []
+
+    roi_contours_by_number = {
+        int(item.ReferencedROINumber): item
+        for item in getattr(rtstruct_ds, "ROIContourSequence", [])
+    }
+
+    for roi in getattr(rtstruct_ds, "StructureSetROISequence", []):
+        roi_number = int(roi.ROINumber)
+
+        roi_contour = roi_contours_by_number.get(roi_number)
+
+        rois.append({
+            "roinumber": roi_number,
+            "roicolor": (
+                [int(x) for x in roi_contour.ROIDisplayColor]
+                if roi_contour and hasattr(roi_contour, "ROIDisplayColor")
+                else None
+            ),
+            "roiname": str(roi.ROIName),
+            
+        })
+
+    return rois
+
+
+
+
+
+def _get_rtstruct_rois_(rtstruct_ds):
+    rois = []
+
+    roi_contours_by_number = {
+        int(item.ReferencedROINumber): item
+        for item in getattr(rtstruct_ds, "ROIContourSequence", [])
+    }
+
+    for roi in rtstruct_ds.StructureSetROISequence:
+        roi_number = int(roi.ROINumber)
+
+        roi_data = {
+            "number": roi_number,
+            "name": str(roi.ROIName),
+            "frame_of_reference_uid": str(
+                roi.ReferencedFrameOfReferenceUID
+            ),
+            "contours": [],
+        }
+
+        roi_contour = roi_contours_by_number.get(roi_number)
+
+        if roi_contour is None:
+            rois.append(roi_data)
+            continue
+
+        for contour in getattr(roi_contour, "ContourSequence", []):
+
+            contour_data = [
+                float(x)
+                for x in contour.ContourData
+            ]
+
+            # Safety check: FHIR requires x,y,z triples.
+            if len(contour_data) % 3 != 0:
+                raise ValueError(
+                    f"ROI {roi_number}, contour has invalid "
+                    f"ContourData length: {len(contour_data)}"
+                )
+
+            roi_data["contours"].append({
+                "geometric_type": str(
+                    contour.ContourGeometricType
+                ),
+                "coordinate": contour_data,
+                "referenced_sop_instance_uids": [
+                    str(ref.ReferencedSOPInstanceUID)
+                    for ref in getattr(
+                        contour,
+                        "ContourImageSequence",
+                        []
+                    )
+                    if hasattr(ref, "ReferencedSOPInstanceUID")
+                ],
+            })
+
+        rois.append(roi_data)
+
+    return rois
+
+
+def _rtstruct_contour_to_fhir_region_type(
+    contour_geometric_type: str,
+) -> str:
+    mapping = {
+        "POINT": "point",
+        "OPEN_PLANAR": "polyline",
+        "CLOSED_PLANAR": "polygon",
+    }
