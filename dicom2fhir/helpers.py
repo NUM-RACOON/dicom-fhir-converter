@@ -135,10 +135,56 @@ def get_rtstruct_rois(rtstruct_ds):
         for item in getattr(rtstruct_ds, "ROIContourSequence", [])
     }
 
+    roi_observations_by_number = {
+        int(item.ReferencedROINumber): item
+        for item in getattr(rtstruct_ds, "RTROIObservationsSequence", [])
+    }
+
     for roi in getattr(rtstruct_ds, "StructureSetROISequence", []):
         roi_number = int(roi.ROINumber)
 
         roi_contour = roi_contours_by_number.get(roi_number)
+        roi_observation = roi_observations_by_number.get(roi_number)
+        roi_identification_code = None
+        roi_observation_label = None
+        roi_interpreted_type = None
+        if roi_observation:
+            # (3006,0085) ROI Observation Label
+            roi_observation_label = getattr(
+                roi_observation,
+                "ROIObservationLabel",
+                None
+            )
+
+            # (3006,00A4) RT ROI Interpreted Type
+            roi_interpreted_type = getattr(
+                roi_observation,
+                "RTROIInterpretedType",
+                None
+            )
+            code_sequence = getattr(
+                roi_observation,
+                "RTROIIdentificationCodeSequence",
+                []
+            )
+
+            if code_sequence:
+                code = code_sequence[0]
+
+                roi_identification_code = {
+                    "code_value": getattr(code, "CodeValue", None),
+                    "coding_scheme_designator": getattr(
+                        code,
+                        "CodingSchemeDesignator",
+                        None
+                    ),
+                    "code_meaning": getattr(
+                        code,
+                        "CodeMeaning",
+                        None
+                    ),
+                }
+
 
         rois.append({
             "roinumber": roi_number,
@@ -148,7 +194,9 @@ def get_rtstruct_rois(rtstruct_ds):
                 else None
             ),
             "roiname": str(roi.ROIName),
-            
+            "roi_identification_code": roi_identification_code,
+            "roi_observation_label": roi_observation_label,
+            "roi_interpreted_type": roi_interpreted_type
         })
 
     return rois

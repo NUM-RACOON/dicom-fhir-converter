@@ -162,6 +162,9 @@ def build_imaging_selection_resource_for_rois(
         roi_name = roi["roiname"]
         roi_number = roi["roinumber"]
         roi_color = roi["roicolor"]
+        roi_identification_code = roi["roi_identification_code"]
+        roi_observation_label = roi["roi_observation_label"]
+        roi_interpreted_type = roi["roi_interpreted_type"]
 
         selection_id = config["id_function"](
             "ImagingSelection",
@@ -177,15 +180,44 @@ def build_imaging_selection_resource_for_rois(
                             coding=[{
                                 "system": f"{config['racoon_url']}/identifier-types",
                                 "code": "ROI",
-                                "display": "Patient internal identifier"
+                                "display": "Radiotherapy structure ROI identifier"
                             }],
-                            text="RTSTRUCT ROI NAME"
+                            text="RTSTRUCT ROI identifier"
                         ),
                         "system": f"{config['racoon_url']}/roi-identifiers",
                         "value": f"{roi_name}"
                     }
         )
 
+        extension = []
+        if roi_identification_code is not None:
+            extension.append({
+                    "url": f"{config['racoon_url']}/fhir/StructureDefinition/rt-roi-identification-code",
+                    "valueCodeableConcept": CodeableConcept(
+                                    coding=[
+                                        Coding(
+                                                system=roi_identification_code["coding_scheme_designator"],
+                                                code=roi_identification_code["code_value"],
+                                                display=roi_identification_code["code_meaning"]
+                                        )
+                                    ]
+                                )
+                    
+                }            ),
+
+        if roi_observation_label is not None and roi_interpreted_type is not None:
+            extension.append({
+                    "url": "https://racoon.com/fhir/StructureDefinition/rt-roi-interpreted-type",
+                    "valueCodeableConcept":  CodeableConcept(
+                                    coding=[
+                                        Coding(
+                                                system=f"{config['racoon_url']}/fhir/CodeSystem/roi-interpreted-types",
+                                                code=roi_interpreted_type,
+                                                display=roi_observation_label
+                                        )
+                                    ]
+                                )
+                }            ),
 
         selection = imagingselection.ImagingSelection(
 
@@ -230,43 +262,14 @@ def build_imaging_selection_resource_for_rois(
                         else {}
                     )
                 }
-            ],
+            ]
     
-            #regionOfInterest= roi_number,
-            # bodySite=CodeableConcept(
-            #     coding=[
-            #         Coding(
-            #             system="http://dicom.nema.org/resources/ontology/DCM",
-            #             code="T-D0050",
-            #             display="Body"
-            #         )
-            #     ]
-            # ),
-
-
-            # extension=[
-            #     {
-            #         "url": config["racoon_url"],
-            #         "extension": [
-            #             {
-            #                 "url": "roiNumber",
-            #                 "valuePositiveInt": roi_number,
-            #             },
-            #             *(
-            #                 [{
-            #                     "url": "roiName",
-            #                     "valueString": roi_name,
-            #                 }]
-            #                 if roi_name is not None
-            #                 else []
-            #             ),
-            #         ],
-            #     }
-            # ],
         )
 
         if len(identifiers) > 0:
             selection.identifier = identifiers
+        if len(extension) > 0:
+            selection.extension = extension
 
         selections.append(selection)
 
