@@ -25,7 +25,7 @@ def process_study(root_path, output_path, save_json_file, fhir_server = None , s
                 "add_vital_signs": True  # Add vital signs Observations for body weight and height
             },
         },
-        "rtstruct_roi_extension_url": "http://example.com/rtstruct-roi"
+        "racoon_url": "https://racoon.com"
 
     }
 

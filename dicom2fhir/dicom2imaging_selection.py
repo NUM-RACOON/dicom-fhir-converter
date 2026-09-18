@@ -169,13 +169,28 @@ def build_imaging_selection_resource_for_rois(
             f"ROI:{roi_number}"
         )
 
+        identifiers = []
+        identifiers.append(
+                    {
+                        "use": "official",
+                        "type": CodeableConcept(
+                            coding=[{
+                                "system": f"{config['racoon_url']}/identifier-types",
+                                "code": "ROI",
+                                "display": "Patient internal identifier"
+                            }],
+                            text="RTSTRUCT ROI NAME"
+                        ),
+                        "system": f"{config['racoon_url']}/roi-identifiers",
+                        "value": f"{roi_name}"
+                    }
+        )
+
+
         selection = imagingselection.ImagingSelection(
 
-
             id=selection_id,
-
             status="available",
-
             code=
                 CodeableConcept(
                     coding=[
@@ -206,6 +221,7 @@ def build_imaging_selection_resource_for_rois(
                 {
                     "uid": sop_instance_uid,
 
+                    "subset": [f"{roi_number}"],
                     "sopClass": instance_data["sopClass"],
 
                     **(
@@ -215,17 +231,22 @@ def build_imaging_selection_resource_for_rois(
                     )
                 }
             ],
-            identifier=[
+    
+            #regionOfInterest= roi_number,
+            # bodySite=CodeableConcept(
+            #     coding=[
+            #         Coding(
+            #             system="http://dicom.nema.org/resources/ontology/DCM",
+            #             code="T-D0050",
+            #             display="Body"
+            #         )
+            #     ]
+            # ),
 
-                        {
-                            "system": config["rtstruct_roi_extension_url"],
-                            "value": f"{roi_number}|{roi_name}"
-                        }
-                    ]
 
             # extension=[
             #     {
-            #         "url": config["rtstruct_roi_extension_url"],
+            #         "url": config["racoon_url"],
             #         "extension": [
             #             {
             #                 "url": "roiNumber",
@@ -243,6 +264,9 @@ def build_imaging_selection_resource_for_rois(
             #     }
             # ],
         )
+
+        if len(identifiers) > 0:
+            selection.identifier = identifiers
 
         selections.append(selection)
 
