@@ -12,6 +12,7 @@ from fhir.resources.contactpoint import ContactPoint
 from fhir.resources.identifier import Identifier
 from fhir.resources.fhirtypes import DateType
 from dicom2fhir.dicom_json_proxy import DicomJsonProxy
+from dicom2fhir.helpers import clean_dicom_text
 
 DATE8_REGEX = re.compile(r'^(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$')
 
@@ -21,7 +22,10 @@ def dicom_name_to_fhir(name: str) -> HumanName:
 
     DICOM name format: 'Family^Given^Middle^Prefix^Suffix'
     """
-    pname = PersonName(name)
+
+    #we need to clean the text, found example with not allowed chars, like \x00  
+    cleaned_name = clean_dicom_text(name)
+    pname = PersonName(cleaned_name)
     if pname is None:
         return HumanName.model_construct()
 

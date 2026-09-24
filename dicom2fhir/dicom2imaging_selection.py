@@ -7,6 +7,7 @@ from fhir.resources.patient import Patient
 from fhir.resources import imagingstudy
 from fhir.resources import imagingselection
 from dicom2fhir.dicom_json_proxy import DicomJsonProxy
+from dicom2fhir.helpers import get_or
 
 logger = logging.getLogger(__name__)
 
@@ -48,16 +49,27 @@ def build_imaging_selection_resource(
             if not is_rtstruct(instance_data):
                 continue 
 
-            return build_imaging_selection_resource_for_rois(
-                first_ds=first_ds,
-                instance_data=instance_data,
-                patient=patient,
-                study=study,
-                config=config,
-                rois=rois,
-                series_uid=series_uid
-            )     
-            
+            fhir_version = get_or(config, "fhir_version", "r6").lower()
+            if fhir_version == "r6":    
+                return build_imaging_selection_resource_for_rois_r6(
+                    first_ds=first_ds,
+                    instance_data=instance_data,
+                    patient=patient,
+                    study=study,
+                    config=config,
+                    rois=rois,
+                    series_uid=series_uid
+                )     
+            else:
+                return build_imaging_selection_resource_for_rois(
+                    first_ds=first_ds,
+                    instance_data=instance_data,
+                    patient=patient,
+                    study=study,
+                    config=config,
+                    rois=rois,
+                    series_uid=series_uid
+                )
             item = {
                  "uid": sop_uid
              }
@@ -156,8 +168,7 @@ def build_imaging_selection_resource_for_rois(
             # ---------------------------------------------------------
             # Create ONE ImagingSelection per ROI
             # ---------------------------------------------------------
-    for roi in roi_list:
-
+    for roi in roi_list['rois']:
 
         roi_name = roi["roiname"]
         roi_number = roi["roinumber"]
@@ -271,6 +282,171 @@ def build_imaging_selection_resource_for_rois(
         if len(extension) > 0:
             selection.extension = extension
 
+        selections.append(selection)
+
+    return selections
+
+
+
+ #structure_set_label = self.rtstructInstances.get(series_uid, {}).get(instance_uid, {}).get("structre_set_label", None)
+
+
+def build_imaging_selection_resource_for_rois_r6(
+    first_ds: DicomJsonProxy,
+    instance_data: any,
+    patient: Patient,
+    study: imagingstudy.ImagingStudy,
+    config: dict,
+    rois: dict,
+    series_uid: str
+) -> list[imagingselection.ImagingSelection]:
+
+    if study is None:
+        raise ValueError("No ImagingStudy available")
+
+    if patient is None:
+        raise ValueError("No Patient available")
+
+    if not first_ds:
+        raise ValueError("Cannot create ImagingSelection without instances")
+
+    selections = []
+
+    sop_instance_uid = instance_data.get("uid")
+    roi_list = rois.get(series_uid).get(sop_instance_uid, [])
+
+    if not roi_list:
+        logger.warning(
+            f"No StructureSetROISequence found in RTSTRUCT "
+            f"{sop_instance_uid}"
+        )
+        return selections
+
+            # ---------------------------------------------------------
+            # Create ONE ImagingSelection per ROI
+            # ---------------------------------------------------------
+    for roi in roi_list['rois']:
+
+        roi_name = roi["roiname"]
+        roi_number = roi["roinumber"]
+        roi_identification_code = roi["roi_identification_code"]
+        roi_observation_label = roi["roi_observation_label"]
+        roi_interpreted_type = roi["roi_interpreted_type"]
+
+        selection_id = config["id_function"](
+            "ImagingSelection",
+            first_ds,
+            f"ROI:{roi_number}"
+        )
+
+        identifiers = [ {
+                            "system": "urn:dicom:uid",
+                            "value": f"urn:oid:{sop_instance_uid}",
+                        }]
+        
+        identifiers.append(
+                    {
+                        "use": "usual",
+                        "type": CodeableConcept(
+                            coding=[{
+                                "system": f"{config['racoon_url']}/identifier-types",
+                                "code": "RTSTRUCT-ROI-NAME",
+                                "display": "DICOM RT Structure Set ROI Name"
+                            }],
+                            text="DICOM RT Structure Set ROI Name"
+                        ).model_dump(),
+                        "system": f"{config['racoon_url']}/dicom/rtstruct/roi-name",
+                        "value": f"{roi_name}"
+                    }
+        )
+
+        extension = []
+        if roi_identification_code is not None:
+
+            extension.append({
+                    "url": f"{config['racoon_url']}/fhir/StructureDefinition/rt-roi-identification-code",
+                    "valueCodeableConcept": CodeableConcept(
+                                    coding=[
+                                        Coding(
+                                                system=roi_identification_code["coding_scheme_designator"],
+                                                code=roi_identification_code["code_value"],
+                                                display=roi_identification_code["code_meaning"]
+                                        )
+                                    ]
+                                ).model_dump()
+                    
+                }   )
+
+
+        if roi_observation_label is not None and roi_interpreted_type is not None:
+            extension.append({
+                    "url": "https://racoon.com/fhir/StructureDefinition/rt-roi-interpreted-type",
+                    "valueCodeableConcept":  CodeableConcept(
+                                    coding=[
+                                        Coding(
+                                                system=f"{config['racoon_url']}/fhir/CodeSystem/roi-interpreted-types",
+                                                code=roi_interpreted_type,
+                                                display=roi_observation_label
+                                        )
+                                    ]
+                                ).model_dump()
+                }            ),
+
+
+   
+        selection = {
+            "resourceType": "ImagingSelection",
+            "id": selection_id,
+
+            "identifier": [
+                {
+                    "system": "urn:dicom:uid",
+                    "value": f"urn:oid:{sop_instance_uid}"
+                }
+            ],
+
+            "status": "available",
+
+            "code": {
+                "text": (
+                    "Region of interest within a DICOM "
+                    "RT Structure Set instance"
+                )
+            },
+
+            "subject": {
+                "reference": f"Patient/{patient.id}"
+            },
+
+            "derivedFrom": {
+                "reference": f"ImagingStudy/{study.id}"
+            },
+
+            "studyUid": str(first_ds["0020000D"]),
+            "seriesUid": str(first_ds["0020000E"]),
+
+            "frameOfReferenceUid": str(
+                first_ds["00200052"]
+            ),
+
+            "instance": [
+                {
+                    "uid": sop_instance_uid,
+                    "sopClass": instance_data["sopClass"].code,
+                    "regionOfInterest": [roi_number]
+                }
+            ],
+
+             "identifier": identifiers if len(identifiers) > 0 else [],
+             "extension": extension if len(extension) > 0 else []
+        }
+
+
+
+        # if len(identifiers) > 0:
+        #     selection.append("identifier", identifiers)
+        # if len(extension) > 0:  
+        #     selection.append("extension", extension)
         selections.append(selection)
 
     return selections

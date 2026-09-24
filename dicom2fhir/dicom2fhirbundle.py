@@ -1,3 +1,4 @@
+import json
 import uuid
 from fhir.resources import bundle
 from fhir.resources import imagingstudy
@@ -264,6 +265,7 @@ class Dicom2FHIRBundle():
             system=SOP_CLASS_SYS
         )
 
+
         if ds.non_empty("InstanceNumber"):
             self.instances[series_instance_uid][sop_instance_uid]["number"] = str(ds.InstanceNumber)
 
@@ -276,7 +278,12 @@ class Dicom2FHIRBundle():
                 rois = get_rtstruct_rois(ds)
                 self.rtstructInstances.setdefault(series_instance_uid, {})[
                                                                 sop_instance_uid
-                                                            ] = rois
+                                                            ] =  {
+                                                                    "rois": rois,
+                                                                    "frameOfReferenceUID": getattr(ds, "FrameOfReferenceUID", None),
+                                                                    "approval_status": getattr(ds, "ApprovalStatus", None),
+                                                                    "structre_set_label": getattr(ds, "StructureSetLabel", None),
+                                                                    }
       
         except Exception:
             pass  # print("Unable to set instance title")
@@ -305,6 +312,25 @@ class Dicom2FHIRBundle():
                 series_data["numberOfInstances"] = len(series_data["instance"])
             else:
                 series_data["numberOfInstances"] = len(self.instances[series_uid])
+
+            exstensions = []
+            if(series_data['modality'].coding[0].code == "RTSTRUCT"):
+                print("RTSTRUCT series found, adding ROI information to series extension")
+                app_status = self.rtstructInstances.get(series_uid, {}).get(instance_uid, {}).get("approval_status", None)
+                if(app_status is not None):
+                    exstensions.append({
+                        "url": f"{self.config['racoon_url']}/fhir/StructureDefinition/rtstruct-approval-status",
+                        "valueCode": app_status
+                    })
+                structure_set_label = self.rtstructInstances.get(series_uid, {}).get(instance_uid, {}).get("structre_set_label", None)
+                if(structure_set_label is not None):
+                    exstensions.append({
+                        "url": f"{self.config['racoon_url']}/fhir/StructureDefinition/rtstruct-structure-set-label",
+                        "valueString": structure_set_label
+                    })
+
+            if len(exstensions) > 0:
+                series_data["extension"] = exstensions
 
             # Create ImagingStudySeries object
             series = imagingstudy.ImagingStudySeries(**series_data)
@@ -374,3 +400,97 @@ class Dicom2FHIRBundle():
             'id': str(uuid.uuid4()),
             'entry': entries
         })
+
+
+    def create_bundle_r6(self) -> dict:
+        """
+        Create the final R6-compatible transaction bundle.
+        """
+
+        def _to_entry(resource):
+
+            if isinstance(resource, dict):
+                resource_dict = resource
+            else:
+                resource_dict = resource.model_dump(
+                    mode="json",
+                    exclude_none=True
+                )
+
+            resource_type = resource_dict["resourceType"]
+            resource_id = resource_dict["id"]
+
+            return {
+                "resource": resource_dict,
+                "request": {
+                    "method": "PUT",
+                    "url": f"{resource_type}/{resource_id}"
+                }
+            }
+        if not self.study:
+            raise ValueError("No ImagingStudy data has been added")
+
+        # Build ImagingStudy
+        _study = self._build_imaging_study()
+
+        # Optional WADO-RS Endpoint
+        dicomweb_base_url = get_or(
+            self.config,
+            "generator.endpoint.dicomweb_base_url",
+            None
+        )
+
+        _endpoint = None
+
+        if dicomweb_base_url:
+            _endpoint = build_endpoint_resource(dicomweb_base_url)
+
+            _study.endpoint = [
+                Reference.model_construct(
+                    reference=f"Endpoint/{_endpoint.id}"
+                )
+            ]
+
+        # Build R6 ImagingSelections as dictionaries
+        _imaging_selections = build_imaging_selection_resource(
+            self.instances,
+            self.pat,
+            self.study,
+            self.first_ds,
+            self.config,
+            self.rtstructInstances
+        )
+
+        # Build Bundle entries
+        entries = []
+
+        # Endpoint must appear before ImagingStudy
+        if _endpoint is not None:
+            entries.append(_to_entry(_endpoint))
+
+        entries.append(_to_entry(_study))
+        entries.append(_to_entry(self.pat))
+
+        entries.extend(
+            _to_entry(device)
+            for device in self.devices.values()
+            if device is not None
+        )
+
+        entries.extend(
+            _to_entry(o)
+            for o in self.obs
+        )
+
+        # R6 ImagingSelection dictionaries
+        entries.extend(
+            _to_entry(sel)
+            for sel in _imaging_selections
+        )
+
+        return {
+            "resourceType": "Bundle",
+            "type": "transaction",
+            "id": str(uuid.uuid4()),
+            "entry": entries
+        }

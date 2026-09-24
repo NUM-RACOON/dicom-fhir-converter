@@ -1,9 +1,11 @@
 import argparse
+import json
 from time import sleep
 from datetime import datetime 
 import os
 
 
+from pydantic import config
 import requests
 
 from dicom2fhir import dicom2fhir
@@ -12,6 +14,8 @@ from asgiref.sync import async_to_sync
 from pathlib import Path
 
 
+
+from dicom2fhir.helpers import get_or
 from asgiref.sync import async_to_sync
 # wrapper function to process study
 def process_study(root_path, output_path, save_json_file, fhir_server = None , sessionkey = None):
@@ -25,7 +29,8 @@ def process_study(root_path, output_path, save_json_file, fhir_server = None , s
                 "add_vital_signs": True  # Add vital signs Observations for body weight and height
             },
         },
-        "racoon_url": "https://racoon.com"
+        "racoon_url": "https://racoon.com",
+        "fhir_version": "r6"
 
     }
 
@@ -71,15 +76,35 @@ def process_study(root_path, output_path, save_json_file, fhir_server = None , s
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if save_json_file == True:
             try:
-                
+                fhir_version = get_or(dicom2fhir_config, "fhir_version", "r6").lower()
                 os.makedirs(output_path,exist_ok=True)
                 output_path = os.path.join(output_path, sessionkey) if sessionkey else output_path
                 os.makedirs(output_path,exist_ok=True)
-                # print(output_path)
-                study_id =bundle.entry[0].resource.id
-                jsonfile = os.path.join(output_path , f"{study_id}_{timestamp}_bundle.json")
+        
+                if(fhir_version == "r6"):
+                    study_id = next(
+                        entry["resource"]["id"]
+                        for entry in bundle["entry"]
+                        if entry["resource"].get("resourceType") == "ImagingStudy"
+                    )
+                else:
+                    study_id =bundle.entry[0].resource.id
+
+            
+                jsonfile = os.path.join(output_path , f"{fhir_version}_{study_id}_{timestamp}_bundle.json")
                 with open(jsonfile, "w+") as outfile:
-                    outfile.write(bundle.model_dump_json())
+                    #
+                    if(fhir_version == "r6"):
+                        json.dump(
+                            bundle,
+                            outfile,
+                            ensure_ascii=False,
+                            indent=2
+                        )
+                    else:
+                            outfile.write(bundle.model_dump_json())
+    
+
             except Exception:
                 print("Unable to create ImagingStudy JSON-file (probably missing identifier)")
     else:

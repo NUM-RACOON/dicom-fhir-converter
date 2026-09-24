@@ -201,3 +201,8 @@ def get_rtstruct_rois(rtstruct_ds):
 
     return rois
 
+
+def clean_dicom_text(value):
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    return value

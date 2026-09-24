@@ -67,7 +67,11 @@ async def _create_bundle(instances: AsyncGenerator[DicomJsonProxy, None], config
             raise TypeError("Expected a DicomJsonProxy object")
         dcm2fhir.add(ds)
 
-    return dcm2fhir.create_bundle()
+    fhir_version = get_or(config, "fhir_version", "r6").lower()
+    if fhir_version == "r6":
+        return dcm2fhir.create_bundle_r6()
+    else:
+        return dcm2fhir.create_bundle()
 
 async def from_directory(dcms: StrPath, config: dict = {}) -> bundle.Bundle:
     """
