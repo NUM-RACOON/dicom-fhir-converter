@@ -265,7 +265,6 @@ class Dicom2FHIRBundle():
             system=SOP_CLASS_SYS
         )
 
-
         if ds.non_empty("InstanceNumber"):
             self.instances[series_instance_uid][sop_instance_uid]["number"] = str(ds.InstanceNumber)
 
@@ -452,7 +451,7 @@ class Dicom2FHIRBundle():
             ]
 
         # Build R6 ImagingSelections as dictionaries
-        _imaging_selections = build_imaging_selection_resource(
+        _imaging_selections, _body_structures = build_imaging_selection_resource(
             self.instances,
             self.pat,
             self.study,
@@ -487,7 +486,10 @@ class Dicom2FHIRBundle():
             _to_entry(sel)
             for sel in _imaging_selections
         )
-
+        entries.extend(
+            _to_entry(bod)
+            for bod in _body_structures
+        )
         return {
             "resourceType": "Bundle",
             "type": "transaction",

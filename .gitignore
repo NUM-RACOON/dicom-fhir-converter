@@ -13,3 +13,4 @@ build/
 dicom_data/
 output/
 
+*.dcm

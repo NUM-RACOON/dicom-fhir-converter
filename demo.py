@@ -4,8 +4,6 @@ from time import sleep
 from datetime import datetime 
 import os
 
-
-from pydantic import config
 import requests
 
 from dicom2fhir import dicom2fhir
